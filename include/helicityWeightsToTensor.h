@@ -1,6 +1,5 @@
 #include <eigen3/Eigen/Dense>
 #include <eigen3/unsupported/Eigen/CXX11/Tensor>
-#include <iostream>
 
 // TODO: Template this
 //template <size_t T>

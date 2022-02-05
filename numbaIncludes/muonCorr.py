@@ -2,6 +2,7 @@ import uproot
 import numpy as np
 import ROOT
 import numba
+from .muonCorrHelpers import *
 
 # Probably should add to the repo
 f = uproot.open("/scratch/shared/MuonCalibration/calibrationJDATA_aftersm.root")
@@ -9,20 +10,6 @@ cov,binsx,binsy = f["covariance_matrix"].to_numpy()
 
 w,v = np.linalg.eigh(cov)
 
-nparams = 6
-netabins = 48
-
-@numba.jit('int64(float64, int64)', nopython=True, nogil=True, debug=True)
-def etaBin(eta, nbins):
-    etamin = -2.4
-    etamax = 2.4
-    etastep = (etamax-etamin)/nbins
-    if eta < etamin:
-        eta = etamin
-    elif eta >= etamax:
-        eta = etamax-etastep/2
-    ieta = int(np.floor((eta-etamin)/etastep))
-    return ieta
 
 @numba.jit('float64[:](float64, float64, int32, float64, boolean)', nopython=True, nogil=True, debug=True)
 def calibratedPt(pt, eta, charge, scale, isUp):
@@ -49,19 +36,6 @@ def calibratedPtUpVar(pt, eta, charge, scale):
 def calibratedPtDownVar(pt, eta, charge, scale):
     return calibratedPt(pt, eta, charge, scale, False)
 
-@numba.jit("float64[:](float64, int64, float64, int64)", nopython=True, nogil=True, debug=True)
-def dummyCalibratedPt(pt, ieta, magnitude, etabins):
-    ptvars = np.full(etabins*2, pt, dtype='float64') 
-    ptvars[ieta] = pt*(1+magnitude)
-    ptvars[ieta+etabins] = pt/(1+magnitude)
-
-    return ptvars
-
-@ROOT.Numba.Declare(["float", "float", "float", "int"], "RVec<double>")
-def dummyCalibratedPtFlat(pt, eta, magnitude, nbins):
-    ieta = etaBin(eta, nbins)
-    return dummyCalibratedPt(pt, ieta, magnitude, nbins)
-
 bnorms = np.zeros(netabins)
 etaBins = np.floor(np.argmax(np.abs(v), axis=0) / nparams)
 isBfield = (np.argmax(np.abs(v), axis=0) % nparams) == 0
@@ -78,16 +52,6 @@ bnorms[zeroidxs] = (bnorms[zeroidxs+1]+bnorms[zeroidxs-1])/2
 def dummyCalibratedPtApproxBField(pt, eta):
     ieta = etaBin(eta, netabins)
     return dummyCalibratedPt(pt, ieta, bnorms[ieta], netabins)
-
-@ROOT.Numba.Declare(["float", "float", "RVec<float>", "float", "int"], "RVec<float>")
-def dummyScaleFromMassWeights(pt, eta, massWeights, scale, bins):
-    upWeight = massWeights[10+1]
-    downWeight = massWeights[10-1]
-    weightsPerEta = np.ones(bins*2, dtype='float32')
-    ieta = etaBin(eta, bins)
-    weightsPerEta[ieta] = np.exp(scale*np.log(upWeight))
-    weightsPerEta[ieta+bins] = np.exp(scale*np.log(downWeight))
-    return weightsPerEta
 
 @numba.jit("float64[:](float64, float64, int32, float32[:], boolean)", nopython=True, nogil=True, debug=True)
 def calibratedPtMassWeightsProxy(pt, eta, charge, massWeights, isUp):
